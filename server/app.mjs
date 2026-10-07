@@ -186,6 +186,7 @@ export function makeServer(config = {}, deps = {}) {
           ".css": "text/css; charset=utf-8",
           ".svg": "image/svg+xml",
           ".png": "image/png",
+          ".webmanifest": "application/manifest+json",
           ".woff2": "font/woff2",
         }[ext];
       if (!mime) throw new ApiError(404, "NOT_FOUND", "ページがありません。");
@@ -205,7 +206,7 @@ export function makeServer(config = {}, deps = {}) {
       );
       res.writeHead(200, {
         "Content-Type": mime,
-        "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=3600",
+        "Cache-Control": ext === ".html" || relative === "sw.js" ? "no-cache" : "public, max-age=3600",
       });
       res.end(req.method === "HEAD" ? undefined : bytes);
     } catch (e) {
