@@ -230,7 +230,7 @@ function App() {
       enabled: false,
       authenticated: false,
       protected: false,
-      message: "写真認識の接続を確認しています。",
+      message: "写真認識サーバーに接続中です。手入力・記録は先に使えます。",
     }),
     [passphrase, setPassphrase] = useState(""),
     [connecting, setConnecting] = useState(false);
@@ -310,7 +310,7 @@ function App() {
   );
   const getStatus = async () => {
     try {
-      const res = await fetch("/api/status");
+      const res = await fetch("/api/status", { signal: AbortSignal.timeout(65000), cache: "no-store" });
       if (!res.ok) throw Error();
       const data = await res.json();
       if (typeof data.enabled !== "boolean") throw Error();
@@ -320,13 +320,16 @@ function App() {
         enabled: false,
         authenticated: false,
         protected: false,
-        message: "写真認識サーバーに未接続です。手動入力で記録できます。",
+        message: "写真認識は未接続です。無料サーバーの起動に時間がかかる場合があります。手入力・記録は使えます。",
       });
     }
   };
   useEffect(() => {
     getStatus();
+    const reconnect = () => { getStatus(); };
+    window.addEventListener("online", reconnect);
     return () => {
+      window.removeEventListener("online", reconnect);
       requestRef.current?.abort();
       photoRevision.current++;
     };
@@ -1672,6 +1675,7 @@ function App() {
               </section>
               <section className="card">
                 <h2>Google Gemini 写真認識</h2>
+                <p>画面の保存が完了すると、次回から手入力・日別記録をサーバーの起動を待たずに使えます。写真認識には接続が必要です。</p>
                 <div
                   className={`connection-status ${status.enabled && status.authenticated ? "online" : ""}`}
                 >
@@ -1915,3 +1919,11 @@ function App() {
   );
 }
 createRoot(document.getElementById("root")!).render(<App />);
+
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" })
+      .then(registration => { void registration.update().catch(() => {}); })
+      .catch(() => { /* Storage restrictions do not block the normal app. */ });
+  });
+}
