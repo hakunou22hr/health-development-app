@@ -1579,3 +1579,5 @@ summary {
 .sidebar nav button:not(.active):hover {
   background: #f4f7ef;
 }
+
+.connection-feedback { padding: 14px; border: 1px solid #cbd8ce; border-radius: 12px; color: #194a42; background: #eef5ed; overflow-wrap: anywhere; }

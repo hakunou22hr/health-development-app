@@ -45,10 +45,9 @@ test("missing key and missing free-project confirmation block real API access", 
     await withServer(
       config,
       async (base) => {
-        assert.equal(
-          (await (await fetch(base + "/api/status")).json()).enabled,
-          false,
-        );
+        const status = await (await fetch(base + "/api/status")).json();
+        assert.equal(status.enabled, false);
+        assert.ok(status.message.includes(config.apiKey ? "GEMINI_FREE_PROJECT_CONFIRMED" : "GEMINI_API_KEY"));
         assert.equal((await post(base + "/api/recognize", image)).status, 503);
       },
       {
