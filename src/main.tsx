@@ -45,6 +45,7 @@ import {
   emptyStore,
 } from "./storage";
 import { prepareImage } from "./image";
+import { connectionJson } from "./connection";
 import type { Item, Meal, Store, Profile, ApiStatus, Nutrients } from "./types";
 import "./style.css";
 const fmt = (value: number, digits = 0) =>
@@ -234,6 +235,9 @@ function App() {
     }),
     [passphrase, setPassphrase] = useState(""),
     [connecting, setConnecting] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [connectionFeedback, setConnectionFeedback] = useState("");
+  const statusRevision = useRef(0);
   const [items, setItems] = useState<Item[]>([]),
     [title, setTitle] = useState(""),
     [kind, setKind] = useState("昼食"),
@@ -309,19 +313,22 @@ function App() {
     ...weekDays.flatMap((d) => [d.energy, d.exercise]),
   );
   const getStatus = async () => {
+    const revision = ++statusRevision.current;
+    setCheckingStatus(true);
+    setStatus(previous => ({ ...previous, message: "接続を確認中です。無料サーバーの起動には1分ほどかかる場合があります。手入力・記録は先に使えます。" }));
     try {
-      const res = await fetch("/api/status", { signal: AbortSignal.timeout(65000), cache: "no-store" });
-      if (!res.ok) throw Error();
-      const data = await res.json();
-      if (typeof data.enabled !== "boolean") throw Error();
-      setStatus(data);
-    } catch {
-      setStatus({
-        enabled: false,
-        authenticated: false,
-        protected: false,
-        message: "写真認識は未接続です。無料サーバーの起動に時間がかかる場合があります。手入力・記録は使えます。",
-      });
+      const data = await connectionJson("/api/status");
+      if (typeof data.enabled !== "boolean" || typeof data.authenticated !== "boolean" || typeof data.protected !== "boolean") throw new Error("接続状態を取得できませんでした。再確認してください。");
+      if (revision === statusRevision.current) setStatus(data);
+      return data as ApiStatus;
+    } catch (error) {
+      if (revision === statusRevision.current) setStatus(previous => ({
+        ...previous, enabled: false, authenticated: false,
+        message: (error as Error).message,
+      }));
+      return null;
+    } finally {
+      if (revision === statusRevision.current) setCheckingStatus(false);
     }
   };
   useEffect(() => {
@@ -562,20 +569,23 @@ function App() {
     }
   };
   const connect = async () => {
+    if (connecting) return;
     setConnecting(true);
+    setConnectionFeedback("パスフレーズを確認中です。無料サーバーの起動には1分ほどかかる場合があります。");
     try {
-      const res = await fetch("/api/session", {
+      await connectionJson("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: passphrase }),
       });
-      const data = await res.json();
-      if (!res.ok) throw Error(data.error);
       setPassphrase("");
-      await getStatus();
-      notify("写真認識へ接続しました。");
-    } catch (e) {
-      notify((e as Error).message);
+      const current = await getStatus();
+      setConnectionFeedback(!current ? "認証後の接続確認に失敗しました。「接続を再確認」を押してください。"
+        : !current.authenticated ? "ログインを保持できませんでした。公開URLとRenderのAPP_ORIGIN、ブラウザーのCookie設定を確認してください。"
+        : current.enabled ? "接続しました。「食事を記録」から写真認識を使えます。"
+        : "パスフレーズは正しく、認証できました。写真認識を使うには、下に表示されたGoogle APIの設定が必要です。");
+    } catch (error) {
+      setConnectionFeedback((error as Error).message);
     } finally {
       setConnecting(false);
     }
@@ -1689,11 +1699,14 @@ function App() {
                 {status.protected && !status.authenticated && (
                   <>
                     <label>
-                      接続用パスフレーズ
+                      接続用パスフレーズ（RenderのAPP_ACCESS_TOKEN）
                       <input
                         type="password"
                         value={passphrase}
                         autoComplete="off"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
                         onChange={(e) => setPassphrase(e.target.value)}
                         placeholder="APIキーではありません"
                       />
@@ -1707,7 +1720,10 @@ function App() {
                     </button>
                   </>
                 )}
-                <button onClick={getStatus}>接続を再確認</button>
+                {connectionFeedback && <p role="status" className="connection-feedback">{connectionFeedback}</p>}
+                <button onClick={getStatus} disabled={checkingStatus || connecting}>
+                  {checkingStatus ? "接続を確認中…" : "接続を再確認"}
+                </button>
                 <p className="footnote">
                   無料枠での利用には、課金を有効にしていないGoogleプロジェクトが必要です。上限に達したら手動入力へ切り替えます。有料モデルへの自動切替は行いません。
                 </p>

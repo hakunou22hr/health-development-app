@@ -109,9 +109,13 @@ export function makeServer(config = {}, deps = {}) {
           authenticated: authenticated(req),
           protected: !!config.accessToken,
           model: enabled ? config.model : null,
-          message: enabled
-            ? "写真認識を接続できます。"
-            : "写真認識は未接続です。手動入力で記録できます。",
+          message: !config.apiKey
+            ? "Google APIキーが未設定です。RenderのEnvironmentにGEMINI_API_KEYを設定してください。手入力・記録は使えます。"
+            : config.freeConfirmed !== true
+              ? "無料枠の確認が未設定です。Googleプロジェクトの課金が無効であることを確認後、RenderのGEMINI_FREE_PROJECT_CONFIRMEDをtrueに設定してください。"
+              : authenticated(req)
+                ? "写真認識に接続済みです。食事の記録から利用できます。"
+                : "サーバーに接続できました。RenderのAPP_ACCESS_TOKENを接続用パスフレーズに入力してください。",
         });
       if (url.pathname === "/api/session" && req.method === "POST") {
         const m = Math.floor(now() / 60000);
