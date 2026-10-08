@@ -188,3 +188,15 @@ test("public binding requires both access control and HTTPS origin", () => {
     }),
   );
 });
+
+
+test("Google failures distinguish model, invalid key, request and service errors without leaking provider text", async () => {
+  for (const [http, reason, expected] of [[404, "", "MODEL_NOT_FOUND"], [400, "API_KEY_INVALID", "KEY_INVALID"], [400, "", "GOOGLE_REQUEST"], [503, "", "GOOGLE_UNAVAILABLE"]]) {
+    await assert.rejects(recognize(image, {apiKey: "secret-test", model: "test-model", fetchImpl: async () => new Response(JSON.stringify({error: {message: "secret-test upstream data", details: [{reason}]}}), {status: http})}), error => {
+      assert.equal(error.code, expected);
+      assert.equal(error.upstreamStatus, http);
+      assert.ok(!error.message.includes("secret-test"));
+      return true;
+    });
+  }
+});
