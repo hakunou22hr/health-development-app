@@ -20,6 +20,8 @@ export type Item = {
   foodId: string;
   grams: number;
   custom?: Nutrients;
+  nutritionSource?: "ai";
+  nutritionAssumptions?: string[];
   confidence?: string;
   note?: string;
 };
