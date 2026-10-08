@@ -216,7 +216,7 @@ export function makeServer(config = {}, deps = {}) {
       }
       if (req.url?.split("?")[0] === "/api/recognize") {
         // Diagnostics contain fixed error codes only: no images, tokens, request bodies or upstream text.
-        const allowedCodes = new Set(["MODEL_NOT_FOUND", "KEY_INVALID", "PROJECT_PRECONDITION", "GOOGLE_REQUEST", "GOOGLE_UNAVAILABLE", "GOOGLE_HTTP", "QUOTA", "KEY", "UPSTREAM", "MODEL_OUTPUT", "AUTH", "ORIGIN", "CONSENT", "IMAGE", "SIZE", "DISABLED", "LIMIT", "LOCAL_QUOTA", "JSON", "NOT_FOOD", "CONFIG"]);
+        const allowedCodes = new Set(["GOOGLE_PREPAYMENT", "GOOGLE_FREE_TIER", "GOOGLE_BILLING", "GOOGLE_PAYMENT_UNKNOWN", "MODEL_NOT_FOUND", "KEY_INVALID", "PROJECT_PRECONDITION", "GOOGLE_REQUEST", "GOOGLE_UNAVAILABLE", "GOOGLE_HTTP", "QUOTA", "KEY", "UPSTREAM", "MODEL_OUTPUT", "AUTH", "ORIGIN", "CONSENT", "IMAGE", "SIZE", "DISABLED", "LIMIT", "LOCAL_QUOTA", "JSON", "NOT_FOOD", "CONFIG"]);
         const code = e instanceof ApiError && allowedCodes.has(e.code) ? e.code : "OTHER";
         const http = Number.isInteger(e.upstreamStatus) ? e.upstreamStatus : "unknown";
         console.warn(`[photo-recognition] code=${code} google_http=${http}`);
