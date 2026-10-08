@@ -2,7 +2,7 @@ import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { ApiError, recognize, validateImage } from "./gemini.mjs";
+import { ApiError, recognize, validateImage, estimateNutrition, validateNutritionInput } from "./gemini.mjs";
 import { issueSession, validSession, SESSION_SECONDS } from "./session.mjs";
 export function makeServer(config = {}, deps = {}) {
   const host = config.host || "127.0.0.1",
@@ -147,7 +147,7 @@ export function makeServer(config = {}, deps = {}) {
         res.setHeader("Set-Cookie", `health_session=; HttpOnly; SameSite=Strict; Path=/api; Max-Age=0${publicHost ? "; Secure" : ""}`);
         return send(res, 200, { ok: true });
       }
-      if (url.pathname === "/api/recognize" && req.method === "POST") {
+      if (["/api/recognize", "/api/nutrition"].includes(url.pathname) && req.method === "POST") {
         if (!authenticated(req))
           throw new ApiError(
             401,
@@ -162,9 +162,11 @@ export function makeServer(config = {}, deps = {}) {
           );
         if (!String(req.headers["content-type"]).startsWith("application/json"))
           throw new ApiError(415, "TYPE", "送信形式を確認してください。");
-        const image = validateImage(await body(req));
+        const nutrition = url.pathname === "/api/nutrition";
+        const input = await body(req, nutrition ? 4096 : 2900000);
+        const image = nutrition ? validateNutritionInput(input) : validateImage(input);
         quota();
-        const result = await (deps.recognize || recognize)(image, {
+        const result = await (nutrition ? (deps.estimateNutrition || estimateNutrition) : (deps.recognize || recognize))(image, {
           apiKey: config.apiKey,
           model: config.model || "gemini-3.5-flash-lite",
         });
@@ -214,7 +216,7 @@ export function makeServer(config = {}, deps = {}) {
         res.end();
         return;
       }
-      if (req.url?.split("?")[0] === "/api/recognize") {
+      if (["/api/recognize", "/api/nutrition"].includes(req.url?.split("?")[0])) {
         // Diagnostics contain fixed error codes only: no images, tokens, request bodies or upstream text.
         const allowedCodes = new Set(["GOOGLE_PREPAYMENT", "GOOGLE_FREE_TIER", "GOOGLE_BILLING", "GOOGLE_PAYMENT_UNKNOWN", "MODEL_NOT_FOUND", "KEY_INVALID", "PROJECT_PRECONDITION", "GOOGLE_REQUEST", "GOOGLE_UNAVAILABLE", "GOOGLE_HTTP", "QUOTA", "KEY", "UPSTREAM", "MODEL_OUTPUT", "AUTH", "ORIGIN", "CONSENT", "IMAGE", "SIZE", "DISABLED", "LIMIT", "LOCAL_QUOTA", "JSON", "NOT_FOOD", "CONFIG"]);
         const code = e instanceof ApiError && allowedCodes.has(e.code) ? e.code : "OTHER";

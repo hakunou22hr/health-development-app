@@ -133,6 +133,10 @@ export function parseBackup(value) {
         name: i.name,
         foodId: i.foodId,
         grams: i.grams,
+        ...(i.foodId === "custom" && i.nutritionSource === "ai" ? {
+          nutritionSource: "ai",
+          nutritionAssumptions: Array.isArray(i.nutritionAssumptions) ? i.nutritionAssumptions.filter(value => typeof value === "string").slice(0, 8).map(value => value.slice(0, 300)) : [],
+        } : {}),
         ...(i.foodId === "custom"
           ? {
               custom: Object.fromEntries(

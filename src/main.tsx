@@ -235,6 +235,10 @@ function App() {
     }),
     [passphrase, setPassphrase] = useState(""),
     [connecting, setConnecting] = useState(false);
+  const [nutritionBusy, setNutritionBusy] = useState<string | null>(null);
+  const [nutritionDetails, setNutritionDetails] = useState<Record<string, string>>({});
+  const [nutritionConsent, setNutritionConsent] = useState(false);
+  const [nutritionFeedback, setNutritionFeedback] = useState<Record<string, string>>({});
   const [photoError, setPhotoError] = useState("");
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [connectionFeedback, setConnectionFeedback] = useState("");
@@ -512,7 +516,28 @@ function App() {
       }
     }
   };
+  const estimateItem = async (item: Item) => {
+    if (nutritionBusy) return;
+    if (!status.enabled || !status.authenticated) {
+      setTab("settings"); notify("Googleの接続設定を確認してください。"); return;
+    }
+    const snapshot = JSON.stringify(item);
+    setNutritionBusy(item.id);
+    setNutritionFeedback(previous => ({...previous, [item.id]: "栄養を概算中です…"}));
+    try {
+      const result = await connectionJson("/api/nutrition", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({name: item.name, details: nutritionDetails[item.id] || "", consent: nutritionConsent}) });
+      if (!validNutrients(result.nutrients) || !Array.isArray(result.assumptions)) throw new Error("概算値を確認できません。栄養表示から入力してください。");
+      setItems(previous => previous.map(current => current.id === item.id && JSON.stringify(current) === snapshot ? {
+        ...current, foodId: "custom", custom: result.nutrients, nutritionSource: "ai", nutritionAssumptions: result.assumptions,
+      } : current));
+      setConfirmed(false);
+      setNutritionFeedback(previous => ({...previous, [item.id]: "AIの概算です。入力を途中で変更した場合は結果を反映しません。仮定と数値を確認・修正してください。"}));
+    } catch (error) {
+      setNutritionFeedback(previous => ({...previous, [item.id]: (error as Error).message}));
+    } finally { setNutritionBusy(null); }
+  };
   const saveMeal = () => {
+    if (nutritionBusy) return;
     if (!confirmed) {
       notify("食品の量と調味料を確認してください。");
       return;
@@ -522,7 +547,7 @@ function App() {
       date: mealDate,
       kind,
       title: title.trim() || kind,
-      items,
+      items: items.map(item => item.nutritionSource === "ai" ? {...item, name: item.name.startsWith("[AI概算] ") ? item.name : `[AI概算] ${item.name}`.slice(0,100)} : item),
     };
     if (!validMeal(meal)) {
       notify(
@@ -990,7 +1015,7 @@ function App() {
                 {photo && (
                   <button
                     className="text-button"
-                    disabled={busy || photoBusy}
+                    disabled={busy || photoBusy || !!nutritionBusy}
                     onClick={() => uploadRef.current?.click()}
                   >
                     別の写真を選ぶ
@@ -1023,7 +1048,7 @@ function App() {
                 </p>
                 <button
                   className="primary full"
-                  disabled={busy || photoBusy || !photo || !consent}
+                  disabled={busy || photoBusy || !!nutritionBusy || !photo || !consent}
                   onClick={recognizePhoto}
                 >
                   {busy ? (
@@ -1134,6 +1159,8 @@ function App() {
                                     ? {
                                         ...i,
                                         foodId: id,
+                                        nutritionSource: undefined,
+                                        nutritionAssumptions: undefined,
                                         name:
                                           id === "custom"
                                             ? item.name
@@ -1178,10 +1205,16 @@ function App() {
                           <small>g</small>
                         </label>
                       </div>
-                      {!item.foodId && (
-                        <p className="inline-error">
-                          未対応の食品です。近い食品へ無理に合わせず、パッケージの栄養表示を入力してください。
-                        </p>
+                      {(!item.foodId || item.foodId === "custom") && (
+                        <div className="nutrition-estimate">
+                          {!item.foodId && <label>食品名<input aria-label={`推定する食品名 ${index + 1}`} value={item.name} maxLength={100} onChange={event => changeItems(items.map(current => current.id === item.id ? {...current, name: event.target.value} : current))} /></label>}
+                          <label>材料・調理状態・甘さなど<textarea aria-label={`材料と調理状態 ${index + 1}`} maxLength={600} value={nutritionDetails[item.id] || ""} placeholder="例：紅茶150g、牛乳50g、砂糖5g。油や具材、無糖・加糖などを補足" onChange={event => setNutritionDetails(previous => ({...previous, [item.id]: event.target.value}))} /></label>
+                          <label className="check-label"><input type="checkbox" checked={nutritionConsent} onChange={event => setNutritionConsent(event.target.checked)} />食品名・材料をGoogleに送信して概算することに同意します。</label>
+                          <p className="footnote">写真だけでは量や材料を確定できません。栄養表示があればそちらを優先してください。無料枠では入力がGoogleの製品改善に使われる場合があります。個人情報は入力しないでください。</p>
+                          <button disabled={!!nutritionBusy || !nutritionConsent || !nutritionDetails[item.id]?.trim() || !item.name.trim() || busy} onClick={() => estimateItem(item)}>{nutritionBusy === item.id ? "栄養を概算中…" : "食品名・材料から栄養を概算"}</button>
+                          {nutritionFeedback[item.id] && <p role="status" className="connection-feedback">{nutritionFeedback[item.id]}</p>}
+                          {item.nutritionSource === "ai" && <div className="connection-feedback"><strong>AIによる栄養概算（100gあたり）・要確認</strong><ul>{item.nutritionAssumptions?.map((value, n) => <li key={n}>{value}</li>)}</ul><p>下の数値と食べた量を修正できます。概算を使った食品は保存後も名前に「AI概算」と表示します。</p></div>}
+                        </div>
                       )}
                       {item.foodId === "custom" && (
                         <div className="custom-nutrition">
@@ -1203,7 +1236,7 @@ function App() {
                             />
                           </label>
                           <p className="footnote">
-                            可食部100gあたりの栄養表示を入力。1食あたり表示の場合は100gへ換算してください。
+                            可食部100gあたりの栄養値を確認・修正。1食あたり表示の場合は100gへ換算してください。
                           </p>
                           <div className="custom-grid">
                             {nutrientKeys.map((k) => (
@@ -1356,6 +1389,7 @@ function App() {
                     !confirmed ||
                     !items.length ||
                     n.unresolved > 0 ||
+                    !!nutritionBusy ||
                     busy ||
                     !!storageError
                   }
