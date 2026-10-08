@@ -594,6 +594,16 @@ function App() {
       setConnecting(false);
     }
   };
+  const disconnect = async () => {
+    setConnecting(true);
+    try {
+      await connectionJson("/api/session", { method: "DELETE" });
+      await getStatus();
+      setConnectionFeedback("この端末の認証を解除しました。次回はパスフレーズを入力してください。");
+    } catch (error) {
+      setConnectionFeedback((error as Error).message);
+    } finally { setConnecting(false); }
+  };
   const shiftDate = (delta: number) => {
     const d = new Date(date + "T12:00:00");
     d.setDate(d.getDate() + delta);
@@ -1725,6 +1735,8 @@ function App() {
                     </button>
                   </>
                 )}
+                <p className="footnote">認証はこのブラウザーで30日間保持します。パスフレーズは保存しません。プライベートブラウズやCookieの削除後は再入力が必要です。</p>
+                {status.protected && status.authenticated && <button onClick={disconnect} disabled={connecting || checkingStatus}>この端末の認証を解除</button>}
                 {connectionFeedback && <p role="status" className="connection-feedback">{connectionFeedback}</p>}
                 <button onClick={getStatus} disabled={checkingStatus || connecting}>
                   {checkingStatus ? "接続を確認中…" : "接続を再確認"}

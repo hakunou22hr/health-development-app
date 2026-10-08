@@ -200,3 +200,31 @@ test("Google failures distinguish model, invalid key, request and service errors
     });
   }
 });
+
+test('remembered login survives a fresh server and supports logout, expiry and global revocation', async () => {
+  const config = { accessToken: 'test-device-secret', apiKey: 'test-key', freeConfirmed: true };
+  const time = Date.UTC(2026, 9, 8);
+  let cookie;
+  await withServer(config, async base => {
+    const login = await post(base + '/api/session', {token: config.accessToken});
+    assert.equal(login.status, 200);
+    const header = login.headers.get('set-cookie');
+    assert.ok(header.includes('Max-Age=2592000'));
+    assert.ok(header.includes('HttpOnly'));
+    assert.ok(header.includes('SameSite=Strict'));
+    cookie = header.split(';')[0];
+  }, {now: () => time});
+  await withServer(config, async base => {
+    const status = await (await fetch(base + '/api/status', {headers: {Cookie: cookie}})).json();
+    assert.equal(status.authenticated, true);
+    const logout = await fetch(base + '/api/session', {method: 'DELETE',headers: {Cookie: cookie}});
+    assert.equal(logout.status,200);
+    assert.ok(logout.headers.get('set-cookie').includes('Max-Age=0'));
+    assert.equal((await (await fetch(base + '/api/status')).json()).authenticated,false);
+  }, {now: () => time + 86400000});
+  for (const [nextConfig, nextTime] of [[{...config,accessToken:'rotated'},time], [config,time + 30*86400000]]) {
+    await withServer(nextConfig, async base => {
+      assert.equal((await (await fetch(base + '/api/status', {headers:{Cookie:cookie}})).json()).authenticated,false);
+    }, {now: () => nextTime});
+  }
+});
