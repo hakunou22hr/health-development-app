@@ -1,8 +1,9 @@
 import http from "node:http";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ApiError, recognize, validateImage } from "./gemini.mjs";
+import { issueSession, validSession, SESSION_SECONDS } from "./session.mjs";
 export function makeServer(config = {}, deps = {}) {
   const host = config.host || "127.0.0.1",
     publicHost = !["127.0.0.1", "localhost", "::1"].includes(host);
@@ -14,7 +15,6 @@ export function makeServer(config = {}, deps = {}) {
       "公開時は APP_ACCESS_TOKEN と HTTPS の APP_ORIGIN を設定してください。",
     );
   const enabled = !!config.apiKey && config.freeConfirmed === true,
-    sessions = new Map(),
     limits = { day: "", daily: 0, minute: 0, minuteCount: 0 },
     loginLimit = { minute: 0, count: 0 };
   const allowed = new Set([
@@ -31,11 +31,8 @@ export function makeServer(config = {}, deps = {}) {
   const now = deps.now || Date.now;
   const authenticated = (req) => {
     if (!config.accessToken) return !publicHost;
-    const match = String(req.headers.cookie || "").match(
-      /(?:^|;\s*)health_session=([a-f0-9]{64})(?:;|$)/,
-    );
-    const expiry = match && sessions.get(match[1]);
-    return !!expiry && expiry > now();
+    const match = String(req.headers.cookie || "").match(/(?:^|;\s*)health_session=([^;]+)(?:;|$)/);
+    return !!match && validSession(match[1], config.accessToken, now());
   };
   const send = (res, status, body) => {
     res.writeHead(status, {
@@ -139,16 +136,15 @@ export function makeServer(config = {}, deps = {}) {
             "AUTH",
             "接続用パスフレーズを確認してください。",
           );
-        for (const [id, expiry] of sessions)
-          if (expiry < now()) sessions.delete(id);
-        if (sessions.size >= 1000)
-          throw new ApiError(429, "SESSION_LIMIT", "接続上限に達しました。");
-        const id = randomBytes(32).toString("hex");
-        sessions.set(id, now() + 12 * 3600000);
+        const id = issueSession(config.accessToken, now());
         res.setHeader(
           "Set-Cookie",
-          `health_session=${id}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=43200${publicHost ? "; Secure" : ""}`,
+          `health_session=${id}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=${SESSION_SECONDS}${publicHost ? "; Secure" : ""}`,
         );
+        return send(res, 200, { ok: true });
+      }
+      if (url.pathname === "/api/session" && req.method === "DELETE") {
+        res.setHeader("Set-Cookie", `health_session=; HttpOnly; SameSite=Strict; Path=/api; Max-Age=0${publicHost ? "; Secure" : ""}`);
         return send(res, 200, { ok: true });
       }
       if (url.pathname === "/api/recognize" && req.method === "POST") {
