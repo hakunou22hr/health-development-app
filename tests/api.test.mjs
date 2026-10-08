@@ -228,3 +228,18 @@ test('remembered login survives a fresh server and supports logout, expiry and g
     }, {now: () => nextTime});
   }
 });
+
+
+test("HTTP 402 exposes only fixed diagnostic labels and makes no paid retry", async () => {
+ for (const [message, code] of [["Insufficient prepaid credit balance secret-test", "GOOGLE_PREPAYMENT"], ["Free tier unavailable secret-test", "GOOGLE_FREE_TIER"], ["Billing required secret-test", "GOOGLE_BILLING"], ["secret-test", "GOOGLE_PAYMENT_UNKNOWN"]]) {
+  let calls = 0;
+  await assert.rejects(recognize(image, {apiKey:"secret-test", model:"test-model", fetchImpl:async () => {calls++; return new Response(JSON.stringify({error:{message}}),{status:402});}}), error => {
+   assert.equal(error.code,code);
+   assert.equal(error.upstreamStatus,402);
+   assert.ok(!error.message.includes("secret-test"));
+   assert.ok(error.message.includes("支払い登録は行わず"));
+   return true;
+  });
+  assert.equal(calls,1);
+ }
+});

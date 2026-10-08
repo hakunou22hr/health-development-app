@@ -7,6 +7,19 @@ export class ApiError extends Error {
     this.code = code;
   }
 }
+export function paymentDiagnostic(payload) {
+  // Classify provider text in memory; return only our fixed labels, never the raw text.
+  const details = Array.isArray(payload?.error?.details) ? payload.error.details : [];
+  const text = [payload?.error?.message, ...details.map(item => item?.reason)]
+    .filter(value => typeof value === "string").join(" ").slice(0, 12000);
+  if (/pre.?pay|pre.?payment|credit.?balance|insufficient.?credit|前払い|残高/i.test(text))
+    return { code: "GOOGLE_PREPAYMENT", hint: "Googleの応答には前払い・クレジット残高に関する説明が含まれています。" };
+  if (/free.?tier|free.?quota|無料枠/i.test(text))
+    return { code: "GOOGLE_FREE_TIER", hint: "Googleの応答には無料枠の利用条件に関する説明が含まれています。" };
+  if (/billing|payment|請求|支払/i.test(text))
+    return { code: "GOOGLE_BILLING", hint: "Googleの応答には支払い・請求設定に関する説明が含まれています。" };
+  return { code: "GOOGLE_PAYMENT_UNKNOWN", hint: "Googleの応答から具体的な拒否理由を判別できませんでした。" };
+}
 export function validateImage(body) {
   if (!body || body.consent !== true)
     throw new ApiError(400, "CONSENT", "写真送信への同意が必要です。");
@@ -174,19 +187,22 @@ export async function recognize(image, { apiKey, model, fetchImpl = fetch }) {
     );
   if (!response.ok) {
     // Inspect only documented codes; never show or log upstream text that may contain a key.
-    let reason = "";
+    let reason = "", payment = paymentDiagnostic(null);
     try {
       const payload = await response.json();
-      const reasons = payload.error?.details?.map(detail => detail.reason) || [];
+      if (response.status === 402) payment = paymentDiagnostic(payload);
+      const reasons = Array.isArray(payload.error?.details) ? payload.error.details.map(detail => detail?.reason) : [];
       if (reasons.includes("API_KEY_INVALID")) reason = "API_KEY_INVALID";
       else if (payload.error?.status === "FAILED_PRECONDITION") reason = "FAILED_PRECONDITION";
     } catch { /* An HTML or empty upstream response is still an actionable HTTP error. */ }
-    const code = response.status === 404 ? "MODEL_NOT_FOUND"
+    const code = response.status === 402 ? payment.code : response.status === 404 ? "MODEL_NOT_FOUND"
       : reason === "API_KEY_INVALID" ? "KEY_INVALID"
       : reason === "FAILED_PRECONDITION" ? "PROJECT_PRECONDITION"
       : response.status === 400 ? "GOOGLE_REQUEST"
       : response.status >= 500 ? "GOOGLE_UNAVAILABLE" : "GOOGLE_HTTP";
-    const message = code === "MODEL_NOT_FOUND"
+    const message = response.status === 402
+      ? `Googleが写真認識を拒否しました（HTTP 402／${payment.code}）。${payment.hint}無料で進める場合、支払い登録は行わず、対象プロジェクトでこのモデルの無料利用が可能かGoogle側に確認してください。手入力・記録は引き続き使えます。`
+      : code === "MODEL_NOT_FOUND"
       ? "Googleが指定モデルを見つけられませんでした（HTTP 404）。RenderのGEMINI_MODELと、Google AI Studioで利用可能なモデルを確認してください。"
       : code === "KEY_INVALID"
         ? "Google APIキーが無効です。RenderのGEMINI_API_KEYに、Google AI Studioでコピーしたキー全体を登録してください。"
