@@ -235,6 +235,7 @@ function App() {
     }),
     [passphrase, setPassphrase] = useState(""),
     [connecting, setConnecting] = useState(false);
+  const [photoError, setPhotoError] = useState("");
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [connectionFeedback, setConnectionFeedback] = useState("");
   const statusRevision = useRef(0);
@@ -442,6 +443,7 @@ function App() {
       if (rev === photoRevision.current) {
         setPhoto(converted);
         setAnalysisNotes([]);
+        setPhotoError("");
       }
     } catch (e) {
       notify((e as Error).message);
@@ -450,6 +452,7 @@ function App() {
     }
   };
   const recognizePhoto = async () => {
+    setPhotoError("");
     if (!status.enabled || !status.authenticated) {
       setTab("settings");
       notify("写真認識の接続設定を確認してください。");
@@ -494,12 +497,13 @@ function App() {
       setAnalysisNotes(Array.isArray(data.notes) ? data.notes : []);
       notify("候補を認識しました。食品・量・調味料を確認してください。");
     } catch (e) {
-      if (requestRef.current === controller)
-        notify(
-          (e as Error).name === "AbortError"
-            ? "写真認識を停止しました。手動入力で続けられます。"
-            : (e as Error).message,
-        );
+      if (requestRef.current === controller) {
+        const message = (e as Error).name === "AbortError"
+          ? "写真認識を停止しました。手動入力で続けられます。"
+          : (e as Error).message;
+        setPhotoError(message);
+        notify(message);
+      }
     } finally {
       clearTimeout(timer);
       if (requestRef.current === controller) {
@@ -1031,6 +1035,7 @@ function App() {
                     認識を停止する
                   </button>
                 )}
+                {photoError && <p role="alert" className="connection-feedback">{photoError}</p>}
                 <p className="footnote">手動入力は接続なしでも使えます。</p>
               </section>
               <section className="card food-editor">

@@ -172,12 +172,35 @@ export async function recognize(image, { apiKey, model, fetchImpl = fetch }) {
       "KEY",
       "GoogleのAPIキー・プロジェクト設定を確認してください。",
     );
-  if (!response.ok)
-    throw new ApiError(
-      502,
-      "UPSTREAM",
-      "写真認識を利用できませんでした。手動入力をご利用ください。",
-    );
+  if (!response.ok) {
+    // Inspect only documented codes; never show or log upstream text that may contain a key.
+    let reason = "";
+    try {
+      const payload = await response.json();
+      const reasons = payload.error?.details?.map(detail => detail.reason) || [];
+      if (reasons.includes("API_KEY_INVALID")) reason = "API_KEY_INVALID";
+      else if (payload.error?.status === "FAILED_PRECONDITION") reason = "FAILED_PRECONDITION";
+    } catch { /* An HTML or empty upstream response is still an actionable HTTP error. */ }
+    const code = response.status === 404 ? "MODEL_NOT_FOUND"
+      : reason === "API_KEY_INVALID" ? "KEY_INVALID"
+      : reason === "FAILED_PRECONDITION" ? "PROJECT_PRECONDITION"
+      : response.status === 400 ? "GOOGLE_REQUEST"
+      : response.status >= 500 ? "GOOGLE_UNAVAILABLE" : "GOOGLE_HTTP";
+    const message = code === "MODEL_NOT_FOUND"
+      ? "Googleが指定モデルを見つけられませんでした（HTTP 404）。RenderのGEMINI_MODELと、Google AI Studioで利用可能なモデルを確認してください。"
+      : code === "KEY_INVALID"
+        ? "Google APIキーが無効です。RenderのGEMINI_API_KEYに、Google AI Studioでコピーしたキー全体を登録してください。"
+      : code === "PROJECT_PRECONDITION"
+        ? "Googleプロジェクトの利用条件を満たしていません。Google AI Studioで対象プロジェクトと無料枠の利用可否を確認してください。課金を有効にせず、手入力をご利用ください。"
+      : code === "GOOGLE_REQUEST"
+        ? "Googleが写真認識のリクエストを受け付けませんでした（HTTP 400）。写真形式またはモデルとの互換性を確認する必要があります。手入力をご利用ください。"
+      : code === "GOOGLE_UNAVAILABLE"
+        ? `Googleの写真認識サービスが応答できませんでした（HTTP ${response.status}）。少し待ってから再試行してください。`
+        : `Googleへの接続が失敗しました（HTTP ${response.status}）。手入力をご利用ください。`;
+    const error = new ApiError(502, code, message);
+    error.upstreamStatus = response.status;
+    throw error;
+  }
   try {
     const result = await response.json();
     if (result.candidates?.[0]?.finishReason !== "STOP") throw Error();
